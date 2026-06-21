@@ -1,0 +1,224 @@
+# Online Doctor Appointment Application — Implementation Plan
+
+A full-stack, production-ready web application with responsive mobile-friendly design for booking doctor appointments online.
+
+---
+
+## Overview
+
+A comprehensive healthcare appointment platform with three distinct user roles:
+- **Patients** — Register, search doctors, book/manage appointments, leave reviews
+- **Doctors** — Manage profiles, schedules, and patient appointments
+- **Admins** — Full platform management, analytics, and content control
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 14 (App Router), React, TypeScript |
+| **Styling** | Vanilla CSS with CSS Variables (blue/white healthcare theme) |
+| **Backend** | Node.js + Express.js (REST API) |
+| **Database** | SQLite (via better-sqlite3, for zero-config local dev) |
+| **Auth** | JWT (access + refresh tokens), bcrypt password hashing |
+| **Notifications** | In-app (database-driven), Nodemailer for email |
+| **File Uploads** | Multer (doctor profile photos) |
+| **Validation** | Zod (frontend + backend) |
+
+> [!NOTE]
+> SQLite is used for zero-configuration local development. The schema is fully compatible with PostgreSQL for production migration via a single config change.
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Email Notifications**: Do you have an SMTP provider (e.g., Gmail, SendGrid, Mailgun)? If not, email notifications will be scaffolded but disabled by default — in-app notifications will fully work.
+
+> [!IMPORTANT]
+> **Deployment Target**: Is this for local development/demo, or do you need a production deployment config (Docker, Vercel, Railway, etc.)?
+
+---
+
+## Proposed Architecture
+
+```
+c:\Projects\OnlineDoctorAppointment\
+├── backend/                    # Express REST API
+│   ├── src/
+│   │   ├── config/            # DB, mailer config
+│   │   ├── middleware/        # Auth, RBAC, error handling
+│   │   ├── models/            # DB schema & queries
+│   │   ├── routes/            # API route handlers
+│   │   ├── services/          # Business logic
+│   │   └── utils/             # Helpers, validators
+│   ├── uploads/               # Doctor profile photos
+│   └── package.json
+├── frontend/                   # Next.js App
+│   ├── app/
+│   │   ├── (auth)/            # Login, Register pages
+│   │   ├── patient/           # Patient dashboard & booking
+│   │   ├── doctor/            # Doctor dashboard
+│   │   ├── admin/             # Admin dashboard
+│   │   └── doctors/           # Public doctor search
+│   ├── components/            # Shared UI components
+│   ├── lib/                   # API client, auth utils
+│   └── package.json
+└── README.md
+```
+
+---
+
+## Database Models
+
+### Users (base auth table)
+`id, email, password_hash, role (patient|doctor|admin), name, phone, avatar, created_at, is_active`
+
+### Patients
+`id, user_id, date_of_birth, gender, blood_group, address, medical_history, emergency_contact`
+
+### Doctors
+`id, user_id, specialty_id, qualification, experience_years, clinic_name, clinic_address, clinic_lat, clinic_lng, consultation_fee, bio, is_verified, rating, total_reviews`
+
+### Specialties
+`id, name, description, icon`
+
+### Availability (weekly schedule)
+`id, doctor_id, day_of_week (0-6), start_time, end_time, slot_duration_minutes, is_active`
+
+### Appointments
+`id, patient_id, doctor_id, specialty_id, date, time_slot, status (pending|confirmed|cancelled|completed|rescheduled), reason, notes, fee, created_at, updated_at`
+
+### Reviews
+`id, appointment_id, patient_id, doctor_id, rating (1-5), comment, created_at`
+
+### Notifications
+`id, user_id, type, title, message, is_read, related_id, created_at`
+
+---
+
+## Proposed Changes
+
+### Backend
+
+#### [NEW] `backend/src/config/database.js`
+SQLite database initialization with all table migrations run on startup.
+
+#### [NEW] `backend/src/config/mailer.js`
+Nodemailer transporter with environment variable config.
+
+#### [NEW] `backend/src/middleware/auth.js`
+JWT verification middleware + role-based access control guards.
+
+#### [NEW] `backend/src/routes/auth.js`
+`POST /api/auth/register` — patient and doctor registration  
+`POST /api/auth/login` — returns access + refresh tokens  
+`POST /api/auth/refresh` — refresh token rotation  
+`POST /api/auth/logout`
+
+#### [NEW] `backend/src/routes/doctors.js`
+`GET /api/doctors` — search/filter (specialty, location, fee, availability)  
+`GET /api/doctors/:id` — full doctor profile  
+`PUT /api/doctors/:id` — update profile (doctor only)  
+`GET /api/doctors/:id/slots` — available slots for a date  
+`GET /api/doctors/:id/reviews`
+
+#### [NEW] `backend/src/routes/appointments.js`
+`POST /api/appointments` — book appointment  
+`GET /api/appointments` — list (filtered by user role)  
+`PUT /api/appointments/:id` — reschedule  
+`DELETE /api/appointments/:id` — cancel  
+`PATCH /api/appointments/:id/status` — doctor confirms/completes
+
+#### [NEW] `backend/src/routes/patients.js`
+Patient profile management, medical history, appointment history.
+
+#### [NEW] `backend/src/routes/admin.js`
+Full CRUD for users, doctors, specialties; system analytics.
+
+#### [NEW] `backend/src/routes/reviews.js`
+`POST /api/reviews` — submit review post-appointment  
+`GET /api/reviews/doctor/:id`
+
+#### [NEW] `backend/src/routes/notifications.js`
+`GET /api/notifications` — user's notifications  
+`PATCH /api/notifications/:id/read`
+
+---
+
+### Frontend — Pages & Components
+
+#### Auth Pages
+- `/login` — Tabbed login (Patient / Doctor / Admin)
+- `/register` — Multi-step registration form (role selection → details)
+
+#### Patient Pages
+- `/patient/dashboard` — Upcoming appointments, stats cards, quick actions
+- `/patient/doctors` — Doctor search with filters sidebar (specialty, location, fee range, availability)
+- `/patient/doctors/[id]` — Doctor profile page with booking widget
+- `/patient/appointments` — Appointment history with status badges
+- `/patient/profile` — Medical profile editor
+- `/patient/notifications` — Notification center
+
+#### Doctor Pages
+- `/doctor/dashboard` — Today's schedule, pending requests, earnings summary
+- `/doctor/appointments` — Full appointment management with status controls
+- `/doctor/schedule` — Weekly availability editor
+- `/doctor/profile` — Profile editor with photo upload
+- `/doctor/patients` — Patient list with history
+
+#### Admin Pages
+- `/admin/dashboard` — Platform analytics (users, appointments, revenue, top doctors)
+- `/admin/doctors` — Approve/reject/manage doctors
+- `/admin/patients` — Patient management
+- `/admin/specialties` — Specialty CRUD
+- `/admin/appointments` — All appointments view
+
+#### Shared Components
+- `Navbar` with role-aware navigation + notification bell
+- `DoctorCard` — search result card with rating, fee, availability
+- `AppointmentCard` — status-colored appointment summary
+- `CalendarPicker` — date selection for booking
+- `TimeSlotGrid` — visual slot selector
+- `StarRating` — interactive rating component
+- `NotificationDropdown` — real-time in-app alerts
+- `AnalyticsCard` — dashboard stat cards with trend indicators
+- `Modal`, `Toast`, `Badge`, `Spinner` — utility UI
+
+---
+
+## Key Features Implementation
+
+### Search & Filter
+Server-side filtering with query params: `specialty`, `location`, `min_fee`, `max_fee`, `date`, `rating`. Returns paginated results.
+
+### Slot Availability Logic
+Availability table defines weekly schedule. On booking request, system checks existing confirmed appointments for that doctor+date, removes taken slots, returns free ones.
+
+### Role-Based Access Control
+Three middleware guards: `requirePatient`, `requireDoctor`, `requireAdmin`. JWT payload contains `role` and `user_id`. Protected routes reject unauthorized roles with 403.
+
+### Appointment Flow
+`Pending → Confirmed (doctor) → Completed` or `Cancelled/Rescheduled` at any point. Each status change triggers a notification to both parties.
+
+### Notifications
+Created server-side on key events (booking, confirmation, cancellation, review). Frontend polls `/api/notifications` every 30 seconds and shows unread count on bell icon.
+
+### Reviews & Ratings
+Only available after appointment status = `completed`. Doctor's `rating` field updated via trigger/query after each new review.
+
+---
+
+## Verification Plan
+
+### Automated
+- Backend: `npm test` with Jest for auth, appointment, and search API routes
+- Frontend: Next.js build (`npm run build`) to catch type errors
+
+### Manual
+1. Register as patient → search doctors → book appointment
+2. Login as doctor → confirm appointment → mark complete
+3. Patient leaves review after completion
+4. Admin dashboard shows correct aggregate data
+5. Mobile responsiveness on 375px viewport
